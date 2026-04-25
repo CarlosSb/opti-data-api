@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+python-multipart
+pillow
+easyocr
+pandas
+openpyxl
+thefuzz
+python-dotenv
+openai
