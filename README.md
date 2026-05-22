@@ -33,6 +33,13 @@ python -m venv .venv
 .venv/bin/uvicorn main:app --reload
 ```
 
+Ou usando os atalhos do projeto:
+
+```bash
+make install
+make dev
+```
+
 A documentacao interativa fica em:
 
 - `http://localhost:8000/docs`
