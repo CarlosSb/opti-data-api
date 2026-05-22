@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -135,3 +136,44 @@ class HealthResponse(BaseModel):
     status: str
     name: str
     version: str
+
+
+class JobStatus(str, Enum):
+    queued = "queued"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+
+class JobAcceptedResponse(BaseModel):
+    job_id: str
+    status: JobStatus
+    type: str
+    created_at: datetime
+    callback_url: Optional[str] = None
+
+
+class JobRecord(BaseModel):
+    job_id: str
+    type: str
+    status: JobStatus
+    created_at: datetime
+    updated_at: datetime
+    callback_url: Optional[str] = None
+    tenant_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class JobWebhookEvent(BaseModel):
+    event: str
+    event_id: str
+    occurred_at: datetime
+    source: str = "opti-data-api"
+    job_id: str
+    type: str
+    status: JobStatus
+    tenant_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+    data: Dict[str, Any] = Field(default_factory=dict)
