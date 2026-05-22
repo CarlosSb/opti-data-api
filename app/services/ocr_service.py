@@ -29,18 +29,24 @@ def _clean_text(text: str) -> str:
 
 def _extract_eye_data(text: str, marker: str) -> PrescriptionEyeData:
     aliases = {
-        "spherical": r"(?:esf(?:erico)?|sph|sférico)",
-        "cylindrical": r"(?:cil(?:indrico)?|cyl|cilíndrico)",
+        "spherical": r"(?:esf[eé]rico|esf|sphere|sph|sphera|sférico)",
+        "cylindrical": r"(?:cil[ií]ndrico|cil|cyl)",
         "axis": r"(?:eixo|axis|ax)",
         "addition": r"(?:adi[cç][aã]o|add|ad)",
     }
     result: dict[str, str | float | int] = {}
-    marker_pattern = rf"(?:{marker}|olho\s+{marker})"
-    segment_match = re.search(
-        rf"{marker_pattern}(.{{0,180}}?)(?:\b(?:od|oe|olho direito|olho esquerdo)\b|$)",
-        text,
-        re.IGNORECASE,
-    )
+
+    if marker == "right":
+        marker_pattern = r"(?:\bOD\b|\bolho\s+direito\b)"
+        next_eye_pattern = r"(?:\bOE\b|\bolho\s+esquerdo\b)"
+    elif marker == "left":
+        marker_pattern = r"(?:\bOE\b|\bolho\s+esquerdo\b)"
+        next_eye_pattern = r"(?:\bOD\b|\bolho\s+direito\b)"
+    else:
+        marker_pattern = rf"(?:{marker})"
+        next_eye_pattern = r"(?:\bOD\b|\bOE\b|\bolho\s+direito\b|\bolho\s+esquerdo\b)"
+
+    segment_match = re.search(rf"{marker_pattern}(.{{0,280}}?)(?={next_eye_pattern}|$)", text, re.IGNORECASE)
     segment = segment_match.group(1) if segment_match else text
 
     for field, alias in aliases.items():
@@ -110,8 +116,8 @@ def parse_prescription_text(text: str) -> PrescriptionData:
     if "longe" in normalized.lower() or "perto" in normalized.lower():
         notes.append("Receita menciona grau para longe/perto")
 
-    right_eye = _extract_eye_data(normalized, "od|olho direito")
-    left_eye = _extract_eye_data(normalized, "oe|olho esquerdo")
+    right_eye = _extract_eye_data(normalized, "right")
+    left_eye = _extract_eye_data(normalized, "left")
     validation_issues = [
         *_validate_eye_data("right_eye", right_eye),
         *_validate_eye_data("left_eye", left_eye),
