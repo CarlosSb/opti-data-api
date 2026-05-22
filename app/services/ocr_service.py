@@ -33,6 +33,8 @@ def _extract_eye_data(text: str, marker: str) -> PrescriptionEyeData:
         "cylindrical": r"(?:cil[ií]ndrico|cil|cyl)",
         "axis": r"(?:eixo|axis|ax)",
         "addition": r"(?:adi[cç][aã]o|add|ad)",
+        "dnp": r"(?:dnp|dp|dist[aâ]ncia\s+naso\s+pupilar|dist[aâ]ncia\s+pupilar)",
+        "height": r"(?:altura|alt)",
     }
     result: dict[str, str | float | int] = {}
 
@@ -55,7 +57,7 @@ def _extract_eye_data(text: str, marker: str) -> PrescriptionEyeData:
             raw_value = match.group(1).replace(",", ".")
             result[field] = raw_value
 
-            if field in {"spherical", "cylindrical", "addition"}:
+            if field in {"spherical", "cylindrical", "addition", "dnp", "height"}:
                 parsed = _parse_decimal(raw_value)
                 if parsed is not None:
                     result[f"{field}_value"] = parsed
@@ -92,7 +94,27 @@ def _validate_eye_data(label: str, eye: PrescriptionEyeData) -> list[str]:
         issues.append(f"{label}.axis fora da faixa esperada")
     if eye.addition_value is not None and not 0 <= eye.addition_value <= 6:
         issues.append(f"{label}.addition fora da faixa esperada")
+    if eye.dnp_value is not None and not 15 <= eye.dnp_value <= 45:
+        issues.append(f"{label}.dnp fora da faixa esperada")
+    if eye.height_value is not None and not 5 <= eye.height_value <= 45:
+        issues.append(f"{label}.height fora da faixa esperada")
     return issues
+
+
+def _extract_optional_field(text: str, alias: str, max_chars: int = 80) -> str | None:
+    next_label = (
+        r"(?=\s+(?:curva\s+base|base\s+curve|bc|di[aâ]metro|diameter|dia|descarte|troca|replacement|"
+        r"quantidade|qtde|qtd|quantity|olho\s+dominante|dominant\s+eye|OD\b|OE\b|observa[cç][oõ]es)|$)"
+    )
+    match = re.search(
+        rf"{alias}\s*[:=]?\s*([A-Za-zÀ-ÿ0-9.,/+ -]{{1,{max_chars}}}?){next_label}",
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    value = _clean_text(match.group(1)).strip(" -,:;")
+    return value or None
 
 
 def parse_prescription_text(text: str) -> PrescriptionData:
@@ -118,6 +140,11 @@ def parse_prescription_text(text: str) -> PrescriptionData:
 
     right_eye = _extract_eye_data(normalized, "right")
     left_eye = _extract_eye_data(normalized, "left")
+    contact_lens_base_curve = _extract_optional_field(normalized, r"(?:curva\s+base|base\s+curve|bc)")
+    contact_lens_diameter = _extract_optional_field(normalized, r"(?:di[aâ]metro|diameter|dia)")
+    contact_lens_replacement = _extract_optional_field(normalized, r"(?:descarte|troca|replacement)")
+    contact_lens_quantity = _extract_optional_field(normalized, r"(?:quantidade|qtde|qtd|quantity)")
+    contact_lens_dominant_eye = _extract_optional_field(normalized, r"(?:olho\s+dominante|dominant\s+eye)")
     validation_issues = [
         *_validate_eye_data("right_eye", right_eye),
         *_validate_eye_data("left_eye", left_eye),
@@ -130,6 +157,11 @@ def parse_prescription_text(text: str) -> PrescriptionData:
         date=date_match.group(1) if date_match else None,
         right_eye=right_eye,
         left_eye=left_eye,
+        contact_lens_base_curve=contact_lens_base_curve,
+        contact_lens_diameter=contact_lens_diameter,
+        contact_lens_replacement=contact_lens_replacement,
+        contact_lens_quantity=contact_lens_quantity,
+        contact_lens_dominant_eye=contact_lens_dominant_eye,
         notes=notes,
         validation_issues=validation_issues,
     )
@@ -147,10 +179,19 @@ def estimate_field_confidence(prescription: PrescriptionData, source: ImageSourc
         "right_eye.cylindrical": prescription.right_eye.cylindrical,
         "right_eye.axis": prescription.right_eye.axis,
         "right_eye.addition": prescription.right_eye.addition,
+        "right_eye.dnp": prescription.right_eye.dnp,
+        "right_eye.height": prescription.right_eye.height,
         "left_eye.spherical": prescription.left_eye.spherical,
         "left_eye.cylindrical": prescription.left_eye.cylindrical,
         "left_eye.axis": prescription.left_eye.axis,
         "left_eye.addition": prescription.left_eye.addition,
+        "left_eye.dnp": prescription.left_eye.dnp,
+        "left_eye.height": prescription.left_eye.height,
+        "contact_lens_base_curve": prescription.contact_lens_base_curve,
+        "contact_lens_diameter": prescription.contact_lens_diameter,
+        "contact_lens_replacement": prescription.contact_lens_replacement,
+        "contact_lens_quantity": prescription.contact_lens_quantity,
+        "contact_lens_dominant_eye": prescription.contact_lens_dominant_eye,
     }
 
     confidence: dict[str, float] = {}
@@ -222,7 +263,9 @@ def run_openai_vision(contents: bytes, content_type: str, settings: Settings) ->
                 "content": (
                     "Voce e um especialista em leitura de receitas oftalmologicas. "
                     "Extraia as informacoes com clareza: paciente, medico, CRM, data, "
-                    "OD/olho direito, OE/olho esquerdo, esferico, cilindrico, eixo, adicao e observacoes."
+                    "OD/olho direito, OE/olho esquerdo, esferico, cilindrico, eixo, adicao, "
+                    "DNP/DP, altura, dados de lente de contato (curva base, diametro, descarte, "
+                    "quantidade, olho dominante) e observacoes."
                 ),
             },
             {

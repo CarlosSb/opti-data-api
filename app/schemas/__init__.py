@@ -15,10 +15,14 @@ class PrescriptionEyeData(BaseModel):
     cylindrical: Optional[str] = None
     axis: Optional[str] = None
     addition: Optional[str] = None
+    dnp: Optional[str] = None
+    height: Optional[str] = None
     spherical_value: Optional[float] = None
     cylindrical_value: Optional[float] = None
     axis_value: Optional[int] = None
     addition_value: Optional[float] = None
+    dnp_value: Optional[float] = None
+    height_value: Optional[float] = None
 
 
 class PrescriptionData(BaseModel):
@@ -28,6 +32,11 @@ class PrescriptionData(BaseModel):
     date: Optional[str] = None
     right_eye: PrescriptionEyeData = Field(default_factory=PrescriptionEyeData)
     left_eye: PrescriptionEyeData = Field(default_factory=PrescriptionEyeData)
+    contact_lens_base_curve: Optional[str] = None
+    contact_lens_diameter: Optional[str] = None
+    contact_lens_replacement: Optional[str] = None
+    contact_lens_quantity: Optional[str] = None
+    contact_lens_dominant_eye: Optional[str] = None
     notes: List[str] = Field(default_factory=list)
     validation_issues: List[str] = Field(default_factory=list)
 
