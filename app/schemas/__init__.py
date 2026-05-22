@@ -32,6 +32,7 @@ class ImageProcessResponse(BaseModel):
     confidence: float
     message: str
     prescription: Optional[PrescriptionData] = None
+    field_confidence: Dict[str, float] = Field(default_factory=dict)
 
 
 class ImageOutputFormat(str, Enum):
@@ -47,6 +48,21 @@ class ImageOptimizationResponse(BaseModel):
     height: int
     original_size_bytes: int
     optimized_size_bytes: int
+    image_base64: str
+
+
+class ImagePreprocessMode(str, Enum):
+    document = "document"
+    ocr = "ocr"
+    clean = "clean"
+
+
+class ImagePreprocessResponse(BaseModel):
+    filename: str
+    content_type: str
+    width: int
+    height: int
+    operations: List[str]
     image_base64: str
 
 
@@ -66,6 +82,20 @@ class SvgExportResponse(BaseModel):
     text: Optional[str] = None
     prescription: Optional[PrescriptionData] = None
     paths_count: Optional[int] = None
+
+
+class BatchImageResult(BaseModel):
+    filename: str
+    ok: bool
+    result: Optional[ImageProcessResponse] = None
+    error: Optional[str] = None
+
+
+class BatchImageProcessResponse(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    results: List[BatchImageResult]
 
 
 class NormalizedCustomer(BaseModel):

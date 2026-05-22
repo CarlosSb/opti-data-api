@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 
 from app.core.config import Settings, get_settings
+from app.core.security import require_api_key
 from app.schemas import CustomerImportResponse
 from app.services.excel_service import normalize_customer_excel
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 
 @router.post("/normalize-excel", response_model=CustomerImportResponse)

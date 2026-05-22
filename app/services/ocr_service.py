@@ -83,6 +83,30 @@ def parse_prescription_text(text: str) -> PrescriptionData:
     )
 
 
+def estimate_field_confidence(prescription: PrescriptionData, source: ImageSource, base_confidence: float) -> dict[str, float]:
+    source_weight = 0.95 if source == ImageSource.llm else max(0.4, min(base_confidence, 0.95))
+
+    fields = {
+        "patient_name": prescription.patient_name,
+        "doctor_name": prescription.doctor_name,
+        "crm": prescription.crm,
+        "date": prescription.date,
+        "right_eye.spherical": prescription.right_eye.spherical,
+        "right_eye.cylindrical": prescription.right_eye.cylindrical,
+        "right_eye.axis": prescription.right_eye.axis,
+        "right_eye.addition": prescription.right_eye.addition,
+        "left_eye.spherical": prescription.left_eye.spherical,
+        "left_eye.cylindrical": prescription.left_eye.cylindrical,
+        "left_eye.axis": prescription.left_eye.axis,
+        "left_eye.addition": prescription.left_eye.addition,
+    }
+
+    confidence: dict[str, float] = {}
+    for field, value in fields.items():
+        confidence[field] = round(source_weight if value else 0.0, 3)
+    return confidence
+
+
 async def read_image_upload(file: UploadFile, settings: Settings) -> tuple[bytes, Image.Image]:
     if not file.content_type or file.content_type not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=400, detail="Arquivo deve ser uma imagem valida")
@@ -103,7 +127,11 @@ async def read_image_upload(file: UploadFile, settings: Settings) -> tuple[bytes
 
 
 def run_easyocr(image: Image.Image) -> tuple[str, float]:
-    import numpy as np
+    try:
+        import easyocr  # noqa: F401
+        import numpy as np
+    except ImportError:
+        return "", 0.0
 
     image_array = np.array(image)
     ocr_result = get_ocr_reader().readtext(image_array, detail=1, paragraph=False)
@@ -168,19 +196,23 @@ async def process_prescription_image(file: UploadFile, settings: Settings) -> Im
     text, confidence = run_easyocr(image)
 
     if confidence >= settings.ocr_min_confidence and len(text) >= settings.ocr_min_text_length:
+        prescription = parse_prescription_text(text)
         return ImageProcessResponse(
             text=text,
             source=ImageSource.ocr,
             confidence=round(confidence, 3),
             message="Texto extraido com sucesso usando OCR",
-            prescription=parse_prescription_text(text),
+            prescription=prescription,
+            field_confidence=estimate_field_confidence(prescription, ImageSource.ocr, confidence),
         )
 
     llm_text = run_openai_vision(contents, file.content_type or "image/jpeg", settings)
+    prescription = parse_prescription_text(llm_text)
     return ImageProcessResponse(
         text=llm_text,
         source=ImageSource.llm,
         confidence=0.92,
         message="Texto extraido usando LLM com visao; OCR local teve baixa confianca",
-        prescription=parse_prescription_text(llm_text),
+        prescription=prescription,
+        field_confidence=estimate_field_confidence(prescription, ImageSource.llm, 0.92),
     )

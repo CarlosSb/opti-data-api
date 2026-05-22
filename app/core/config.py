@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_description: str = "API dedicada para processamento de imagens, OCR, IA visual e exportacao SVG."
     cors_origins: List[str] = Field(default_factory=lambda: ["*"])
     openai_api_key: str | None = None
+    api_key: str | None = None
     openai_model: str = Field(
         default="gpt-4o-mini",
         validation_alias=AliasChoices("OPENAI_MODEL", "OPEMAI_MODEL"),

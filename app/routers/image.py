@@ -1,12 +1,23 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
 from app.core.config import Settings, get_settings
-from app.schemas import ImageOptimizationResponse, ImageOutputFormat, ImageProcessResponse, SvgExportMode, SvgExportResponse
-from app.services.image_service import optimize_image_upload
+from app.core.security import require_api_key
+from app.schemas import (
+    BatchImageProcessResponse,
+    BatchImageResult,
+    ImageOptimizationResponse,
+    ImageOutputFormat,
+    ImagePreprocessMode,
+    ImagePreprocessResponse,
+    ImageProcessResponse,
+    SvgExportMode,
+    SvgExportResponse,
+)
+from app.services.image_service import optimize_image_upload, preprocess_image_upload
 from app.services.ocr_service import parse_prescription_text, process_prescription_image, read_image_upload
 from app.services.svg_service import build_embedded_image_svg, build_text_card_svg, build_vectorized_image_svg
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 
 @router.post("/process-image", response_model=ImageProcessResponse)
@@ -33,6 +44,52 @@ async def optimize_image(
     Retorna a imagem otimizada em base64, sem gravar arquivo.
     """
     return await optimize_image_upload(file, settings, max_width, quality, output_format)
+
+
+@router.post("/preprocess", response_model=ImagePreprocessResponse)
+async def preprocess_image(
+    file: UploadFile = File(...),
+    mode: ImagePreprocessMode = Query(default=ImagePreprocessMode.ocr),
+    max_width: int = Query(default=1800, ge=320, le=6000),
+    settings: Settings = Depends(get_settings),
+):
+    """
+    Prepara a imagem para OCR/IA:
+    - clean: remove ruido e melhora contraste.
+    - ocr: binariza para leitura.
+    - document: tenta corrigir inclinacao leve e melhorar contraste.
+    """
+    return await preprocess_image_upload(file, settings, mode, max_width)
+
+
+@router.post("/batch/process-images", response_model=BatchImageProcessResponse)
+async def batch_process_images(
+    files: list[UploadFile] = File(...),
+    max_files: int = Query(default=5, ge=1, le=20),
+    settings: Settings = Depends(get_settings),
+):
+    """
+    Processa varias imagens em lote, de forma sequencial e com limite explicito.
+    """
+    selected_files = files[:max_files]
+    results: list[BatchImageResult] = []
+
+    for file in selected_files:
+        try:
+            result = await process_prescription_image(file, settings)
+            results.append(BatchImageResult(filename=file.filename or "image", ok=True, result=result))
+        except HTTPException as error:
+            results.append(BatchImageResult(filename=file.filename or "image", ok=False, error=str(error.detail)))
+        except Exception as error:
+            results.append(BatchImageResult(filename=file.filename or "image", ok=False, error=str(error)))
+
+    succeeded = sum(1 for result in results if result.ok)
+    return BatchImageProcessResponse(
+        total=len(results),
+        succeeded=succeeded,
+        failed=len(results) - succeeded,
+        results=results,
+    )
 
 
 @router.post("/export-svg", response_model=SvgExportResponse)
