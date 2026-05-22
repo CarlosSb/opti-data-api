@@ -28,6 +28,8 @@ app.add_middleware(
 
 app.include_router(image_router, prefix="/api/image", tags=["Imagens"])
 app.include_router(customer_router, prefix="/api/customers", tags=["Clientes"])
+app.include_router(image_router, prefix="/api/v1/image", tags=["v1 Imagens"])
+app.include_router(customer_router, prefix="/api/v1/customers", tags=["v1 Clientes"])
 
 
 @app.get("/")

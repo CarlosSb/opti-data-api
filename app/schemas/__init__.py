@@ -14,6 +14,10 @@ class PrescriptionEyeData(BaseModel):
     cylindrical: Optional[str] = None
     axis: Optional[str] = None
     addition: Optional[str] = None
+    spherical_value: Optional[float] = None
+    cylindrical_value: Optional[float] = None
+    axis_value: Optional[int] = None
+    addition_value: Optional[float] = None
 
 
 class PrescriptionData(BaseModel):
@@ -24,6 +28,7 @@ class PrescriptionData(BaseModel):
     right_eye: PrescriptionEyeData = Field(default_factory=PrescriptionEyeData)
     left_eye: PrescriptionEyeData = Field(default_factory=PrescriptionEyeData)
     notes: List[str] = Field(default_factory=list)
+    validation_issues: List[str] = Field(default_factory=list)
 
 
 class ImageProcessResponse(BaseModel):

@@ -34,7 +34,7 @@ def _extract_eye_data(text: str, marker: str) -> PrescriptionEyeData:
         "axis": r"(?:eixo|axis|ax)",
         "addition": r"(?:adi[cç][aã]o|add|ad)",
     }
-    result: dict[str, str] = {}
+    result: dict[str, str | float | int] = {}
     marker_pattern = rf"(?:{marker}|olho\s+{marker})"
     segment_match = re.search(
         rf"{marker_pattern}(.{{0,180}}?)(?:\b(?:od|oe|olho direito|olho esquerdo)\b|$)",
@@ -46,9 +46,47 @@ def _extract_eye_data(text: str, marker: str) -> PrescriptionEyeData:
     for field, alias in aliases.items():
         match = re.search(rf"{alias}\s*[:=]?\s*([+-]?\d+(?:[,.]\d+)?|\d{{1,3}})", segment, re.IGNORECASE)
         if match:
-            result[field] = match.group(1).replace(",", ".")
+            raw_value = match.group(1).replace(",", ".")
+            result[field] = raw_value
+
+            if field in {"spherical", "cylindrical", "addition"}:
+                parsed = _parse_decimal(raw_value)
+                if parsed is not None:
+                    result[f"{field}_value"] = parsed
+            if field == "axis":
+                parsed_axis = _parse_axis(raw_value)
+                if parsed_axis is not None:
+                    result["axis_value"] = parsed_axis
 
     return PrescriptionEyeData(**result)
+
+
+def _parse_decimal(value: str) -> float | None:
+    try:
+        return round(float(value.replace(",", ".")), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_axis(value: str) -> int | None:
+    try:
+        parsed = int(round(float(value.replace(",", "."))))
+    except (TypeError, ValueError):
+        return None
+    return parsed
+
+
+def _validate_eye_data(label: str, eye: PrescriptionEyeData) -> list[str]:
+    issues: list[str] = []
+    if eye.spherical_value is not None and not -30 <= eye.spherical_value <= 30:
+        issues.append(f"{label}.spherical fora da faixa esperada")
+    if eye.cylindrical_value is not None and not -15 <= eye.cylindrical_value <= 15:
+        issues.append(f"{label}.cylindrical fora da faixa esperada")
+    if eye.axis_value is not None and not 0 <= eye.axis_value <= 180:
+        issues.append(f"{label}.axis fora da faixa esperada")
+    if eye.addition_value is not None and not 0 <= eye.addition_value <= 6:
+        issues.append(f"{label}.addition fora da faixa esperada")
+    return issues
 
 
 def parse_prescription_text(text: str) -> PrescriptionData:
@@ -72,14 +110,22 @@ def parse_prescription_text(text: str) -> PrescriptionData:
     if "longe" in normalized.lower() or "perto" in normalized.lower():
         notes.append("Receita menciona grau para longe/perto")
 
+    right_eye = _extract_eye_data(normalized, "od|olho direito")
+    left_eye = _extract_eye_data(normalized, "oe|olho esquerdo")
+    validation_issues = [
+        *_validate_eye_data("right_eye", right_eye),
+        *_validate_eye_data("left_eye", left_eye),
+    ]
+
     return PrescriptionData(
         patient_name=_clean_text(patient_match.group(1)) if patient_match else None,
         doctor_name=_clean_text(doctor_match.group(1)) if doctor_match else None,
         crm=_clean_text(crm_match.group(1)) if crm_match else None,
         date=date_match.group(1) if date_match else None,
-        right_eye=_extract_eye_data(normalized, "od|olho direito"),
-        left_eye=_extract_eye_data(normalized, "oe|olho esquerdo"),
+        right_eye=right_eye,
+        left_eye=left_eye,
         notes=notes,
+        validation_issues=validation_issues,
     )
 
 
