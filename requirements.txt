@@ -5,6 +5,7 @@ pydantic
 pydantic-settings
 python-multipart
 pillow
+numpy
 easyocr
 pandas
 openpyxl
