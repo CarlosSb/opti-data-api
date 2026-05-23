@@ -47,6 +47,7 @@ class ImageProcessResponse(BaseModel):
     confidence: float
     message: str
     prescription: Optional[PrescriptionData] = None
+    extracted_data: Dict[str, str] = Field(default_factory=dict)
     field_confidence: Dict[str, float] = Field(default_factory=dict)
 
 

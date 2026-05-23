@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import re
 from functools import lru_cache
 from typing import Any
@@ -14,6 +15,7 @@ from app.schemas import ImageProcessResponse, ImageSource, PrescriptionData, Pre
 
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff"}
+logger = logging.getLogger("optiprocess.ocr")
 
 
 @lru_cache(maxsize=1)
@@ -167,6 +169,37 @@ def parse_prescription_text(text: str) -> PrescriptionData:
     )
 
 
+def _native_ocr_data(prescription: PrescriptionData) -> dict[str, str]:
+    def value(raw: str | int | float | None) -> str:
+        return "" if raw is None else str(raw).strip()
+
+    return {
+        "od_esferico": value(prescription.right_eye.spherical),
+        "od_cilindrico": value(prescription.right_eye.cylindrical),
+        "od_eixo": value(prescription.right_eye.axis),
+        "od_adicao": value(prescription.right_eye.addition),
+        "od_dnp": value(prescription.right_eye.dnp),
+        "od_altura": value(prescription.right_eye.height),
+        "oe_esferico": value(prescription.left_eye.spherical),
+        "oe_cilindrico": value(prescription.left_eye.cylindrical),
+        "oe_eixo": value(prescription.left_eye.axis),
+        "oe_adicao": value(prescription.left_eye.addition),
+        "oe_dnp": value(prescription.left_eye.dnp),
+        "oe_altura": value(prescription.left_eye.height),
+        "lenteContatoCurvaBase": value(prescription.contact_lens_base_curve),
+        "lenteContatoDiametro": value(prescription.contact_lens_diameter),
+        "lenteContatoDescarte": value(prescription.contact_lens_replacement),
+        "lenteContatoQuantidade": value(prescription.contact_lens_quantity),
+        "lenteContatoOlhoDominante": value(prescription.contact_lens_dominant_eye),
+        "medico": value(prescription.doctor_name),
+        "crm": value(prescription.crm),
+    }
+
+
+def _filled_fields_count(extracted_data: dict[str, str]) -> int:
+    return sum(1 for value in extracted_data.values() if value)
+
+
 def estimate_field_confidence(prescription: PrescriptionData, source: ImageSource, base_confidence: float) -> dict[str, float]:
     source_weight = 0.95 if source == ImageSource.llm else max(0.4, min(base_confidence, 0.95))
 
@@ -265,7 +298,7 @@ def run_openai_vision(contents: bytes, content_type: str, settings: Settings) ->
                     "Extraia as informacoes com clareza: paciente, medico, CRM, data, "
                     "OD/olho direito, OE/olho esquerdo, esferico, cilindrico, eixo, adicao, "
                     "DNP/DP, altura, dados de lente de contato (curva base, diametro, descarte, "
-                    "quantidade, olho dominante) e observacoes."
+                    "quantidade e olho dominante). Nao inclua observacoes gerais."
                 ),
             },
             {
@@ -287,27 +320,65 @@ def run_openai_vision(contents: bytes, content_type: str, settings: Settings) ->
 
 
 async def process_prescription_image(file: UploadFile, settings: Settings) -> ImageProcessResponse:
+    logger.info(
+        "OCR iniciado | arquivo=%s | content_type=%s",
+        file.filename or "image",
+        file.content_type or "unknown",
+    )
     contents, image = await read_image_upload(file, settings)
+    logger.info(
+        "Imagem recebida | arquivo=%s | tamanho=%skb | dimensoes=%sx%s",
+        file.filename or "image",
+        round(len(contents) / 1024, 1),
+        image.width,
+        image.height,
+    )
+
     text, confidence = run_easyocr(image)
+    logger.info(
+        "OCR local concluido | confianca=%.3f | caracteres=%s",
+        confidence,
+        len(text),
+    )
 
     if confidence >= settings.ocr_min_confidence and len(text) >= settings.ocr_min_text_length:
         prescription = parse_prescription_text(text)
+        extracted_data = _native_ocr_data(prescription)
+        logger.info(
+            "OCR finalizado via EasyOCR | campos=%s | confianca=%.3f",
+            _filled_fields_count(extracted_data),
+            confidence,
+        )
         return ImageProcessResponse(
             text=text,
             source=ImageSource.ocr,
             confidence=round(confidence, 3),
             message="Texto extraido com sucesso usando OCR",
             prescription=prescription,
+            extracted_data=extracted_data,
             field_confidence=estimate_field_confidence(prescription, ImageSource.ocr, confidence),
         )
 
+    logger.info(
+        "OCR local abaixo do limiar | usando IA visual | min_conf=%.2f | min_chars=%s",
+        settings.ocr_min_confidence,
+        settings.ocr_min_text_length,
+    )
     llm_text = run_openai_vision(contents, file.content_type or "image/jpeg", settings)
     prescription = parse_prescription_text(llm_text)
+    extracted_data = _native_ocr_data(prescription)
+    logger.info(
+        "OCR finalizado via IA visual | campos=%s | caracteres=%s | confianca=%.2f",
+        _filled_fields_count(extracted_data),
+        len(llm_text),
+        0.92,
+    )
     return ImageProcessResponse(
         text=llm_text,
         source=ImageSource.llm,
         confidence=0.92,
         message="Texto extraido usando LLM com visao; OCR local teve baixa confianca",
         prescription=prescription,
+        extracted_data=extracted_data,
         field_confidence=estimate_field_confidence(prescription, ImageSource.llm, 0.92),
     )

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,6 +10,10 @@ from app.routers.jobs import router as jobs_router
 from app.schemas import HealthResponse
 
 settings = get_settings()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
 
 app = FastAPI(
     title=settings.app_name,

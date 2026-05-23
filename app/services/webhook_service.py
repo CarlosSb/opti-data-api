@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
+import logging
 from uuid import uuid4
 
 import httpx
@@ -10,6 +10,9 @@ import httpx
 from app.core.config import Settings
 from app.schemas import JobRecord, JobStatus, JobWebhookEvent
 from app.services.job_service import utc_now
+
+
+logger = logging.getLogger("optiprocess.webhook")
 
 
 def build_job_event(job: JobRecord) -> JobWebhookEvent:
@@ -32,6 +35,7 @@ def build_job_event(job: JobRecord) -> JobWebhookEvent:
 
 async def dispatch_job_webhook(job: JobRecord, settings: Settings) -> None:
     if not job.callback_url:
+        logger.info("Webhook ignorado | job_id=%s | motivo=sem_callback", job.job_id)
         return
 
     event = build_job_event(job)
@@ -48,7 +52,20 @@ async def dispatch_job_webhook(job: JobRecord, settings: Settings) -> None:
         headers["X-Webhook-Signature"] = sign_payload(payload, timestamp, settings.webhook_signing_secret)
 
     async with httpx.AsyncClient(timeout=settings.webhook_timeout_seconds) as client:
-        await client.post(job.callback_url, content=payload, headers=headers)
+        logger.info(
+            "Webhook enviando | job_id=%s | evento=%s | destino=%s",
+            job.job_id,
+            event.event,
+            job.callback_url,
+        )
+        response = await client.post(job.callback_url, content=payload, headers=headers)
+        response.raise_for_status()
+        logger.info(
+            "Webhook entregue | job_id=%s | evento=%s | status=%s",
+            job.job_id,
+            event.event,
+            response.status_code,
+        )
 
 
 def sign_payload(payload: str, timestamp: str, secret: str) -> str:

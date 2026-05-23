@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     cors_origins: List[str] = Field(default_factory=lambda: ["*"])
     openai_api_key: str | None = None
     api_key: str | None = None
+    default_webhook_url: str | None = None
     webhook_signing_secret: str | None = None
     webhook_timeout_seconds: float = 5.0
     openai_model: str = Field(

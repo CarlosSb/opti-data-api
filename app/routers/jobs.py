@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from io import BytesIO
 from typing import Any
 
@@ -15,6 +16,7 @@ from app.services.webhook_service import dispatch_job_webhook
 
 
 router = APIRouter(dependencies=[Depends(require_api_key)])
+logger = logging.getLogger("optiprocess.jobs")
 
 
 @router.post("/image-process", response_model=JobAcceptedResponse)
@@ -35,11 +37,21 @@ async def create_image_process_job(
     if len(contents) > settings.max_upload_bytes:
         raise HTTPException(status_code=413, detail=f"Imagem excede o limite de {settings.max_upload_mb}MB")
 
+    effective_callback_url = callback_url or settings.default_webhook_url
+
     job = create_job(
         job_type="image_process",
-        callback_url=callback_url,
+        callback_url=effective_callback_url,
         tenant_id=tenant_id,
         correlation_id=correlation_id,
+    )
+    logger.info(
+        "Job criado | job_id=%s | tipo=%s | tenant=%s | correlation=%s | callback=%s",
+        job.job_id,
+        job.type,
+        tenant_id or "-",
+        correlation_id or "-",
+        "sim" if effective_callback_url else "nao",
     )
     background_tasks.add_task(
         run_image_process_job,
@@ -79,13 +91,21 @@ async def run_image_process_job(
     contents: bytes,
     settings: Settings,
 ) -> None:
+    logger.info("Job iniciado | job_id=%s | arquivo=%s | content_type=%s", job_id, filename, content_type)
     mark_processing(job_id)
     try:
         upload = InMemoryUploadFile(filename=filename, content_type=content_type, contents=contents)
         result = await process_prescription_image(upload, settings)  # type: ignore[arg-type]
         job = mark_completed(job_id, result.model_dump(mode="json"))
+        logger.info(
+            "Job concluido | job_id=%s | origem=%s | confianca=%.3f",
+            job_id,
+            result.source,
+            result.confidence,
+        )
     except Exception as error:
         job = mark_failed(job_id, str(getattr(error, "detail", error)))
+        logger.exception("Job falhou | job_id=%s | erro=%s", job_id, getattr(error, "detail", error))
 
     if job:
         try:
@@ -93,7 +113,7 @@ async def run_image_process_job(
         except Exception:
             # O job ja foi concluido/falhou. Falha de webhook deve ser observada
             # em logs da plataforma e futuramente em uma fila de retry.
-            pass
+            logger.exception("Webhook do job falhou | job_id=%s", job_id)
 
 
 class InMemoryUploadFile:
