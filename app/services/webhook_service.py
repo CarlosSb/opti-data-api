@@ -69,6 +69,16 @@ async def dispatch_job_webhook(job: JobRecord, settings: Settings) -> None:
 
 
 def sign_payload(payload: str, timestamp: str, secret: str) -> str:
+    normalized_secret = normalize_webhook_secret(secret)
     signed_payload = f"{timestamp}.{payload}".encode("utf-8")
-    digest = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+    digest = hmac.new(normalized_secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
     return f"sha256={digest}"
+
+
+def normalize_webhook_secret(secret: str) -> str:
+    normalized = secret.strip()
+    if (normalized.startswith('"') and normalized.endswith('"')) or (
+        normalized.startswith("'") and normalized.endswith("'")
+    ):
+        normalized = normalized[1:-1].strip()
+    return normalized
